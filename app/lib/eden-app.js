@@ -1,14 +1,19 @@
-var eden_server_path = "http://127.0.0.1:13337/";
+var eden_server_path = "http://127.0.0.1/app/";
 
 var eden_thread;
 var eden_frame_svg;
 var eden_frame_nodes = [];
 var eden_frame_elements = [];
+var max_fps = 60;
+var eden_dim = [800,600];
+var lasttime = Date.now();
 
 var eden_world_elements = [];
+var eden_surfaces = [];
 
-var max_fps = 60;
-var lasttime = Date.now();
+var eden_start;
+var eden_main;
+var eden_cam;
 
 var eden_man = edenManDefaults();
 
@@ -16,9 +21,8 @@ var debug_starttime = Date.now();
 
 $(document).ready(function(){
 
-	//Initialize svg and world threads
+	//Initialize svg
 	eden_frame_svg = $('#eden-frame').svg().svg('get');
-	eden_thread = setInterval(function(){ edenUpdate();edenDraw();},1.0/max_fps);
 
 
 	//Attach window listeners
@@ -29,6 +33,19 @@ $(document).ready(function(){
 	//Initialize Eden Variables
 	edenCenter();
 
+	edenLoad(100,function(data){
+		//muhahahaha
+		try {
+			data = jQuery.parseJSON(data);
+		} catch (e){
+			notify("Exception in JSON World File: " + e.description);
+		}
+		edenResetWorld();
+		edenProcessWorld(data);
+		eden_thread = setInterval(function(){ edenUpdate();edenDraw();},1.0/max_fps);
+	});
+
+if (false){
 	edenAdd([
 		function(svg){
 			return svg.circle(eden_man.x,eden_man.y+20,20,{fill:'none',stroke:'black',strokeWidth:2});
@@ -54,6 +71,7 @@ $(document).ready(function(){
 			}
 		}
 	]);
+}
 
 });
 
@@ -64,17 +82,121 @@ function edenLoad(worldID,callback){
 		cache:true,
 		dataType:'text',
 		error:function(jqXHR,textStatus,errorThrown){
-			alert("Could not connect to server.");
+			notify("Could not connect to server.");
 		},success:function(data,textStatus,jqXHR){
 			callback(data);
 		},type:'get'
 	});
 }
-function edenVerify(worldData,sum){
-	return sum == $().crypt({method:"md5",source:worldData});
+function edenResetWorld(){
+	eden_cam = eden_main = {};
+	eden_surfaces = eden_world_elements = [];
+}
+function edenProcessWorld(data){
+	if (data.eden === true){
+		edenInitializeWorld(data.worldData);
+	} else {
+		notify("Malformed world file.");
+	}
 }
 function edenInitializeWorld(worldData){
+	//Initialize Camera and Character
+	eden_start = {
+		x:worldData.start[0],
+		y:worldData.start[1],
+	};
+	//define it twice just in case
+	eden_cam = {
+		x:worldData.start[0],
+		y:worldData.start[1],
+	};
+	eden_main = {
+		x:worldData.start[0],
+		y:worldData.start[1],
+		v_x:0.0,
+		v_y:0.0,
+		a_x:0.0,
+		a_y:0.004,
+		is_l:false,
+		is_r:false,
+		d:1
+	}
+	eden_surfaces = eden_surfaces.concat(worldData.surfaces);
+	var frame_element;
+	for (var i=0;i<worldData.elements.length;i++){
+		frame_element = [];
+		for (var j=0;j<worldData.elements[i].length;j++){
+			frame_element.push(edenGetFrameElementDrawer(worldData.elements[i][j]));
+		}
+		if (frame_element.length != 0) eden_frame_elements.push(frame_element);
+		else notify("Warning: Frame element of 0 in world file encountered.");
+	}
+}
+function edenGetFrameElementDrawer(element){
+	if (element[0] == "line"){
+		return (function(element){
+			return function(svg){
+				return svg.line(element[2] + element[1]*(eden_cam.x - eden_start.x),
+				                element[3] + element[1]*(eden_cam.y - eden_start.y),
+				                element[4] + element[1]*(eden_cam.x - eden_start.x),
+				                element[5] + element[1]*(eden_cam.y - eden_start.y),
+				                element[6]);
+			};
+		})(element);
+	} else if (element[0] == "circle"){
+		return (function (element){
+			return function(svg){
+				return svg.circle(element[2] + element[1]*(eden_cam.x - eden_start.x),
+				                element[3] + element[1]*(eden_cam.y - eden_start.y),
+				                element[4],element[5]);
 
+			};
+		})(element);
+	} else if (element[0] == "ellipse"){
+		return (function (element){
+			return function(svg){
+				return svg.ellipse(element[2] + element[1]*(eden_cam.x - eden_start.x),
+				                element[3] + element[1]*(eden_cam.y - eden_start.y),
+				                element[4],element[5],element[6]);
+
+			};
+		})(element);
+	} else if (element[0] == "rect"){
+		return (function (element){
+			return function(svg){
+				return svg.rect(element[2] + element[1]*(eden_cam.x - eden_start.x),
+				                element[3] + element[1]*(eden_cam.y - eden_start.y),
+				                element[4],element[5], //width and height
+				                element[6],element[7], //rounded x and rounded y
+				                element[8] //settings
+				                );
+
+			};
+		})(element);
+	} else if (element[0] == "polyline"){
+		return (function (element){
+			return function(svg){
+				var correctedpoints = adjustPolypoint(element[2],element[1]); //untested
+				return svg.polyline(correctedpoints,element[3]);
+			};
+		})(element);
+	} else if (element[0] == "polygon"){
+		return (function (element){
+			return function(svg){
+				var correctedpoints = adjustPolypoint(element[2],element[1]); //untested
+				return svg.polygon(correctedpoints,element[3]);
+			};
+		})(element);
+	} else {
+		notify("Unrecognized element in world file: "+element[0].toString()+".");
+	}
+}
+function adjustPolypoint(points,d){
+	var ret = [];
+	for (var i=0;i<points.length;i++){
+		ret.push([points[i][0] + d*(eden_cam.x - eden_start.x),points[i][1] + d*(eden_cam.y - eden_start_y)]);
+	}
+	return ret;
 }
 
 //Eden World Update Loop
@@ -167,7 +289,7 @@ function edenCenter(){
 }
 function edenURL(urlarray){
 	var ret = [];
-	if (eden_server_path.charAt(-1) == "/"){
+	if (eden_server_path.charAt(eden_server_path.length-1) == "/"){
 		ret.push(eden_server_path.substr(0,eden_server_path.length-1));
 	} else {
 		ret.push(eden_server_path);
@@ -177,4 +299,7 @@ function edenURL(urlarray){
 		ret.push(urlarray[i].replace(new RegExp('^/|/$','g'),""));
 	}
 	return ret.join("/");
+}
+function notify(msg){
+	if (window.console) console.log(msg);
 }

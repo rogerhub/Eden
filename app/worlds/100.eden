@@ -1,0 +1,22 @@
+{
+"eden":true,
+"author":"Roger Chen",
+"sum":"",
+"worldData":{
+	"name":"Flatland",
+	"width":2200,
+	"height":1000,
+	"start":[400,800],
+	"surfaces":[
+		[0,300,400,900],
+		[1800,300,1800,900],
+		[400,900,1800,900],
+		[400,300,1800,300]],
+	"elements":[
+		[
+			["line",1.0,400,900,1800,900,{"fill":"none","stroke":"black","strokeWidth":2}],
+			["circle",0.07,500,300,100,{"fill":"none","stroke":"black","strokeWidth":3}]
+		]
+	]
+}
+}
